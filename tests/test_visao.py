@@ -1,0 +1,86 @@
+import unittest
+
+import config
+from tests.simulador import Cena
+from visao import Visao
+
+
+def preparar(cena, visao, n=16):
+    for _ in range(n):
+        visao.processar(cena.quadro())
+
+
+class TestVisao(unittest.TestCase):
+    def setUp(self):
+        self.cfg = config.carregar("/nao/existe")
+        self.cena = Cena()
+        self.v = Visao(self.cfg["visao"])
+        preparar(self.cena, self.v)
+
+    def test_sala_vazia_sem_pessoa(self):
+        for _ in range(10):
+            self.assertIsNone(self.v.processar(self.cena.quadro()))
+
+    def test_pessoa_andando_e_confirmada(self):
+        p = None
+        for i in range(15):
+            p = self.v.processar(self.cena.quadro(pessoa=dict(x=-0.4 + i * 0.04, z=2.3)))
+        self.assertIsNotNone(p)
+        self.assertTrue(p.cabeca_ok)
+        self.assertTrue(p.confirmada)
+        self.assertAlmostEqual(p.centro[2], 2.3, delta=0.15)
+
+    def test_pessoa_parada_sem_gesto_nao_confirma(self):
+        p = None
+        for _ in range(15):
+            p = self.v.processar(self.cena.quadro(pessoa=dict(x=0, z=2.3)))
+        self.assertFalse(p is not None and p.confirmada)
+
+    def test_pessoa_parada_com_mao_confirma(self):
+        p = None
+        for _ in range(15):
+            p = self.v.processar(self.cena.quadro(pessoa=dict(x=0, z=2.3, mao=(0.2, 0.1, 1.8))))
+        self.assertTrue(p.confirmada)
+
+    def test_caixa_nao_e_humano(self):
+        for i in range(30):
+            p = self.v.processar(self.cena.quadro(caixa=dict(x=-0.5 + i * 0.03, z=2.0, largura=0.6, altura=1.2)))
+            self.assertFalse(p is not None and p.confirmada)
+
+    def test_mao_localizada(self):
+        alvo = (0.25, 0.15, 1.7)
+        p = None
+        for i in range(12):
+            p = self.v.processar(self.cena.quadro(pessoa=dict(x=-0.2 + i * 0.03, z=2.2, mao=alvo)))
+        self.assertIsNotNone(p.mao)
+        for a, b in zip(p.mao, alvo):
+            self.assertAlmostEqual(a, b, delta=0.06)
+
+    def test_varias_distancias_e_alturas(self):
+        for z in (1.8, 2.5, 3.2):
+            for alt in (1.55, 1.9):
+                v = Visao(self.cfg["visao"])
+                preparar(self.cena, v)
+                p = None
+                for i in range(15):
+                    p = v.processar(self.cena.quadro(pessoa=dict(x=-0.3 + i * 0.04, z=z, altura=alt)))
+                self.assertTrue(p is not None and p.confirmada, f"z={z} altura={alt}")
+
+    def test_cabeca_fora_do_quadro_pede_inclinacao(self):
+        # perto e alto: a cabeça sai por cima da imagem; não dá para validar,
+        # mas a visão avisa para o laço principal inclinar o Kinect para cima
+        p = None
+        for i in range(15):
+            p = self.v.processar(self.cena.quadro(pessoa=dict(x=-0.3 + i * 0.04, z=1.2, altura=1.9)))
+        self.assertFalse(p is not None and p.confirmada)
+        self.assertTrue(self.v.cortado)
+
+    def test_inclinar_mantem_fundo(self):
+        for i in range(12):
+            self.v.processar(self.cena.quadro(pessoa=dict(x=-0.3 + i * 0.04, z=2.2)))
+        self.v.mudar_angulo(4)
+        self.assertTrue(self.v.fundo_pronto())
+
+
+if __name__ == "__main__":
+    unittest.main()

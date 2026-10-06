@@ -1,0 +1,18 @@
+{
+  "controle": {
+    "timeout_modo_s": 10,
+    "gesto_sair": "segurar_centro",
+    "modos": {
+      "ar": {"entrada": "segurar_acima", "tipo": "climate", "entidade": "climate.ar_quarto",
+             "modo_ao_ligar": "cool", "modos_hvac": ["cool", "dry", "fan_only", "auto"],
+             "passo_temp": 1, "temp_min": 16, "temp_max": 30},
+      "ventilador": {"entrada": "segurar_direita", "tipo": "fan", "entidade": "fan.quarto_gui", "passo": 25},
+      "pendente": {"entrada": "segurar_esquerda", "tipo": "light", "entidade": "light.modulo_dimmer_light_2", "passo": 20}
+    },
+    "atalhos": {
+      "empurrar": {"acao": "alternar", "entidade": "light.modulo_dimmer_light_1"}
+    }
+  },
+  "gestos": {"inverter_x": false},
+  "seguir": {"ativo": true}
+}

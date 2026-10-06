@@ -1,0 +1,28 @@
+[Unit]
+Description=Kinect do quarto (presenca humana, gestos -> Home Assistant)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=__USER__
+Group=__USER__
+SupplementaryGroups=plugdev video
+
+WorkingDirectory=__HOME__/kinect
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 __HOME__/kinect/kinect_quarto.py
+
+Restart=always
+RestartSec=10
+
+# avisa o systemd a cada quadro; travou 60 s -> reinicia
+WatchdogSec=60
+NotifyAccess=main
+
+Nice=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
