@@ -102,6 +102,17 @@ def main():
     signal.signal(signal.SIGTERM, parar)
     signal.signal(signal.SIGINT, parar)
 
+    cd = cfg["deitado"]
+    pasta_ref = os.path.expanduser(cd["pasta"])
+    n_ref = visao.carregar_referencias(pasta_ref)
+    if n_ref:
+        log.info("referências do quarto vazio carregadas: %d ângulo(s)", n_ref)
+    vazio_desde = None
+    ref_em = float("-inf")
+    deitado_desde = None
+    pessoa_deitada = False
+    deitado = None
+
     debug = cfg.get("debug_imagem")
     if debug:
         os.makedirs(os.path.dirname(debug), exist_ok=True)
@@ -145,6 +156,31 @@ def main():
             ultima_presenca = t0
         ativo = t0 - ultima_presenca < cp["ocioso_apos_s"]
 
+        # quarto vazio (mmWave sem ninguém e nada na frente do Kinect): guarda
+        # a referência usada para achar alguém deitado depois
+        if pres_mm or pessoa is not None:
+            vazio_desde = None
+        elif vazio_desde is None:
+            vazio_desde = t0
+        if (vazio_desde is not None and t0 - vazio_desde >= cd["vazio_para_referencia_s"]
+                and t0 - ref_em >= cd["renovar_referencia_s"]):
+            if visao.guardar_referencia(pasta_ref):
+                ref_em = t0
+                log.info("referência do quarto vazio guardada (%d°)", kinect.angulo)
+
+        # pessoa deitada: o mmWave diz que tem alguém e ninguém em pé/sentado
+        # foi confirmado; vale um volume do tamanho de gente parado uns segundos
+        deitado = visao.procurar_deitado() if pres_mm and not confirmada else None
+        if deitado is None:
+            if pessoa_deitada:
+                log.info("pessoa deitada não está mais à vista")
+            deitado_desde, pessoa_deitada = None, False
+        else:
+            deitado_desde = deitado_desde or t0
+            if not pessoa_deitada and t0 - deitado_desde >= cd["segundos_confirmar"]:
+                pessoa_deitada = True
+                log.info("pessoa deitada confirmada (%s)", deitado)
+
         controle.pessoa(confirmada)
         for g in gestos.atualizar(t0, pessoa if confirmada else None):
             controle.gesto(g)
@@ -177,12 +213,14 @@ def main():
         if t0 - ultimo_salvo >= 1:
             ultimo_salvo = t0
             dados = {
-                "estado": resumo, "pessoa": confirmada,
+                "estado": resumo, "pessoa": confirmada, "pessoa_deitada": pessoa_deitada,
                 "candidato": pessoa is not None,
                 "mmwave": pres_mm, "movimento": round(visao.movimento, 3),
                 "ativo": ativo, "angulo": kinect.angulo, "fps": round(fps, 1),
                 "ultimo_gesto": controle.ultimo_gesto,
                 "fundo_pronto": visao.fundo_pronto(),
+                "referencia_vazio": kinect.angulo in visao.referencias,
+                "deitado": deitado,
                 "salvo_em": time.time(),
             }
             if pessoa is not None:
@@ -191,12 +229,13 @@ def main():
                                      "mao": pessoa.mao is not None}
             salvar_estado(dados)
             if debug:
-                cv2.imwrite(debug, imagem_debug(prof, pessoa, f"{resumo} {fps:.1f}fps {kinect.angulo}deg"))
+                cv2.imwrite(debug, imagem_debug(prof, pessoa, f"{resumo} {fps:.1f}fps {kinect.angulo}deg",
+                                                visao.deitado_mascara if deitado else None))
         if resumo != ultimo_publicado[0] or t0 - ultimo_publicado[1] >= ch["publicar_a_cada_s"]:
             ultimo_publicado = (resumo, t0)
             ha.publicar_estado(ch["entidade_estado"], resumo, {
                 "friendly_name": "Kinect quarto", "icon": "mdi:human-greeting",
-                "pessoa": confirmada, "angulo": kinect.angulo,
+                "pessoa": confirmada, "pessoa_deitada": pessoa_deitada, "angulo": kinect.angulo,
                 "ultimo_gesto": controle.ultimo_gesto})
 
         alvo = cp["fps_ativo"] if ativo else cp["fps_ocioso"]

@@ -104,3 +104,39 @@ class TestVisao(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDeitado(unittest.TestCase):
+    CAMA = dict(x=0.0, z=2.6, largura=1.9, altura=0.5)
+
+    def setUp(self):
+        self.cfg = config.carregar("/nao/existe")
+        self.cena = Cena()
+        self.v = Visao(self.cfg["visao"])
+        for _ in range(20):
+            self.v.processar(self.cena.quadro(caixas=[self.CAMA]))
+        self.assertTrue(self.v.guardar_referencia())
+
+    def ver(self, *caixas):
+        r = None
+        for _ in range(5):
+            self.v.processar(self.cena.quadro(caixas=[self.CAMA, *caixas]))
+            r = self.v.procurar_deitado()
+        return r
+
+    def test_cama_vazia(self):
+        self.assertIsNone(self.ver())
+
+    def test_pessoa_deitada(self):
+        r = self.ver(dict(x=0.0, z=2.35, largura=1.7, altura=0.3, y0=0.5))
+        self.assertIsNotNone(r)
+        self.assertAlmostEqual(r["comprimento_m"], 1.7, delta=0.25)
+
+    def test_gato_na_cama_nao_conta(self):
+        self.assertIsNone(self.ver(dict(x=0.3, z=2.4, largura=0.45, altura=0.25, y0=0.5)))
+
+    def test_pessoa_deitada_ja_no_fundo_ainda_aparece(self):
+        # deitada desde antes: o fundo vivo absorve, a referência do vazio não
+        for _ in range(400):
+            self.v.processar(self.cena.quadro(caixas=[self.CAMA, dict(x=0.0, z=2.35, largura=1.7, altura=0.3, y0=0.5)]))
+        self.assertIsNotNone(self.v.procurar_deitado())

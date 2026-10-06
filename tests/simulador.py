@@ -67,15 +67,15 @@ class Cena:
                 self._retangulo(zbuf, min(ox, ox + sinal * 0.08), max(ox, ox + sinal * 0.08),
                                 quadril + 0.05, ombro, z + 0.03)       # braço caído
 
-    def quadro(self, pessoa=None, caixa=None):
+    def quadro(self, pessoa=None, caixa=None, caixas=()):
         """pessoa: dict(x, z, altura=1.75, maos={"img_esq"|"img_dir": (x,y,z)},
                        celular="img_esq"|"img_dir"|None)
         caixa: dict(x, z, largura, altura) — objeto sem forma humana."""
         zbuf = self._fundo()
-        if caixa:
-            c = caixa
+        for c in ([caixa] if caixa else []) + list(caixas):
+            base = -ALTURA_CAMERA + c.get("y0", 0.0)
             self._retangulo(zbuf, c["x"] - c["largura"] / 2, c["x"] + c["largura"] / 2,
-                            -ALTURA_CAMERA, -ALTURA_CAMERA + c["altura"], c["z"])
+                            base, base + c["altura"], c["z"])
         if pessoa:
             self._pessoa(zbuf, pessoa["x"], pessoa["z"], pessoa.get("altura", 1.75),
                          pessoa.get("maos", {}), pessoa.get("celular"))

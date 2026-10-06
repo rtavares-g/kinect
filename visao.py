@@ -127,6 +127,8 @@ class Visao:
         self._anterior = None
         self._reancorar = None
         self.maior_candidato = None
+        self.referencias: dict[int, np.ndarray] = {}   # quarto vazio, por ângulo
+        self.deitado_mascara = None
         self._kernel = np.ones((3, 3), np.uint8)
         self._kernel_fechar = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 7))
 
@@ -459,8 +461,83 @@ class Visao:
         self.sequencia_humano = 0
         self.deslocamento = 0.0
 
+    # ------------------------------------------------- pessoa deitada (cama)
+    # Deitado e coberto, a silhueta não tem "cabeça mais estreita que os
+    # ombros" na vertical e, parada, acaba no fundo aprendido. Por isso a
+    # comparação é com uma referência do quarto VAZIO (guardada quando o
+    # mmWave diz que não há ninguém) e a validação é só pelo tamanho: um
+    # volume novo do tamanho de uma pessoa deitada, não de um gato.
 
-def imagem_debug(profundidade_mm: np.ndarray, pessoa: Pessoa | None, texto: str = "") -> np.ndarray:
+    def guardar_referencia(self, pasta: str | None = None) -> bool:
+        """Guarda o fundo atual como referência do quarto vazio (por ângulo)."""
+        if not self.fundo_pronto():
+            return False
+        ref = np.where(self.desconhecido[self.angulo], 0, self.fundos[self.angulo]).astype(np.float32)
+        self.referencias[self.angulo] = ref
+        if pasta:
+            import os
+            os.makedirs(pasta, exist_ok=True)
+            np.save(os.path.join(pasta, f"referencia_{self.angulo}.npy"), ref)
+        return True
+
+    def carregar_referencias(self, pasta: str) -> int:
+        import glob
+        import os
+        for f in glob.glob(os.path.join(pasta, "referencia_*.npy")):
+            try:
+                ang = int(os.path.basename(f)[len("referencia_"):-4])
+                self.referencias[ang] = np.load(f)
+            except (ValueError, OSError):
+                continue
+        return len(self.referencias)
+
+    def procurar_deitado(self) -> dict | None:
+        """Maior volume novo (vs. a referência do quarto vazio) com tamanho de
+        pessoa deitada no último quadro, ou None."""
+        cfg = self.cfg
+        ref = self.referencias.get(self.angulo)
+        if ref is None or self._anterior is None:
+            return None
+        d, valido = self._anterior
+        self.deitado_mascara = None
+        novo = valido & (ref > 0) & (d < ref - cfg["deitado_altura_m"])
+        novo = cv2.morphologyEx(novo.astype(np.uint8), cv2.MORPH_OPEN, self._kernel)
+        n, rot, st, _ = cv2.connectedComponentsWithStats(novo, connectivity=8)
+        melhor = None
+        for i in range(1, n):
+            if st[i, cv2.CC_STAT_AREA] < cfg["min_pixels"]:
+                continue
+            if st[i, cv2.CC_STAT_TOP] <= 1:
+                continue   # encostado no topo da imagem: teto/borda, não gente
+            ys, xs = np.nonzero(rot == i)
+            zs = d[ys, xs]
+            dif = float(np.median(ref[ys, xs] - zs))
+            if dif < cfg["deitado_dif_media_m"]:
+                continue   # só uma película de ruído sobre a referência
+            area = float(((zs / FX) * (zs / FY)).sum())
+            if area < cfg["deitado_area_min_m2"]:
+                continue
+            X = (xs - CX) * zs / FX
+            Y = -(ys - CY) * zs / FY
+            def faixa(v):
+                a, b = np.percentile(v, [3, 97])
+                return float(b - a)
+            dx, dy, dz = faixa(X), faixa(Y), faixa(zs)
+            comprimento = max(float(np.hypot(dx, dz)), dy)
+            if dy < cfg["deitado_altura_visivel_m"]:
+                continue   # faixa fina (borda de móvel, prateleira)
+            if not (cfg["deitado_comprimento_min_m"] <= comprimento <= cfg["deitado_comprimento_max_m"]):
+                continue
+            if melhor is None or area > melhor["area_m2"]:
+                self.deitado_mascara = rot == i
+                melhor = {"area_m2": round(area, 2), "comprimento_m": round(comprimento, 2),
+                          "z_m": round(float(np.median(zs)), 2), "dif_m": round(dif, 2),
+                          "pixels": int(st[i, cv2.CC_STAT_AREA])}
+        return melhor
+
+
+def imagem_debug(profundidade_mm: np.ndarray, pessoa: Pessoa | None, texto: str = "",
+                 deitado: np.ndarray | None = None) -> np.ndarray:
     d = profundidade_mm[::ESCALA, ::ESCALA].astype(np.float32)
     img = np.clip(255 - d / 4500 * 255, 0, 255).astype(np.uint8)
     img[d == 0] = 0
@@ -473,6 +550,8 @@ def imagem_debug(profundidade_mm: np.ndarray, pessoa: Pessoa | None, texto: str 
         for _, px in pessoa.maos.values():
             cv2.circle(img, px, 6, (0, 0, 255), 2)
         cv2.line(img, (x, pessoa.ombro_px), (x + w, pessoa.ombro_px), (255, 128, 0), 1)
+    if deitado is not None:
+        img[deitado] = (img[deitado] * 0.5 + np.array((255, 0, 255)) * 0.5).astype(np.uint8)
     if texto:
         cv2.putText(img, texto, (4, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
     return img

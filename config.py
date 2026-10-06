@@ -34,6 +34,14 @@ PADRAO = {
         "mao_altura_m": 0.12,           # ponta do braço levantado considerada mão
         "mao_area_min_m2": 0.004,
         "mao_profundidade_m": 0.08,
+        # pessoa deitada: volume novo em relação ao quarto vazio
+        "deitado_altura_m": 0.12,
+        # na cama, de frente para o Kinect, só cabeça e ombros aparecem (~0,13 m²)
+        "deitado_area_min_m2": 0.10,
+        "deitado_altura_visivel_m": 0.20,
+        "deitado_comprimento_min_m": 0.7,  # recostado/sentado na cama também
+        "deitado_dif_media_m": 0.25,      # em média bem à frente do quarto vazio
+        "deitado_comprimento_max_m": 2.4,
     },
     "gestos": {
         "inverter_x": True,             # a imagem do Kinect vem espelhada (conferido no teste 2)
@@ -92,6 +100,12 @@ PADRAO = {
         "intervalo_s": 3.0,
         "topo_alto": 0.06,              # cabeça acima de 6% da imagem -> sobe
         "topo_baixo": 0.40,             # cabeça abaixo de 40% -> desce
+    },
+    "deitado": {
+        "segundos_confirmar": 3.0,      # volume parado esse tempo = pessoa deitada
+        "vazio_para_referencia_s": 120, # mmWave sem ninguém esse tempo -> guarda referência
+        "renovar_referencia_s": 600,
+        "pasta": "~/.cache/kinect",
     },
     "presenca": {
         "estado_mmwave": "~/presenca-quarto/estado.json",
