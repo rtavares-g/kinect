@@ -11,8 +11,10 @@ Pipeline (tudo em 320x240, metade da resolução do Kinect):
 4. Um candidato só vira pessoa *confirmada* depois de parecer humano por
    vários quadros seguidos e de ter se mexido (objetos parados, como uma
    cadeira ou um casaco, nunca se mexem e acabam absorvidos pelo fundo).
-5. Mão: dentro da pessoa, pontos bem mais perto do sensor que o tronco
-   (braço esticado para a frente). O ponto mais próximo é a mão.
+5. Cabeça: sobe do peito (parte mais grossa da silhueta) seguindo o
+   contorno até onde ele afina (pescoço) e continua até o topo.
+6. Mãos: o que sobra da silhueta acima da linha dos ombros, fora da
+   cabeça. A ponta de cada braço levantado é uma mão.
 """
 
 from dataclasses import dataclass, field
@@ -39,6 +41,8 @@ class Pessoa:
     cabeca_ok: bool
     mao: tuple | None = None       # x, y, z em metros
     mao_px: tuple | None = None
+    maos: dict = field(default_factory=dict)  # "img_esq"/"img_dir" -> (xyz, px)
+    ombro_px: int = 0
     confirmada: bool = False
     id: int = 0
     extras: dict = field(default_factory=dict)
@@ -47,6 +51,56 @@ class Pessoa:
 def para_3d(u, v, z):
     """Pixel (320x240) + profundidade em m -> metros, Y para cima."""
     return ((u - CX) * z / FX, -(v - CY) * z / FY, z)
+
+
+def _trechos(linha: np.ndarray):
+    """Trechos contínuos True de uma linha: lista de (início, fim exclusivo)."""
+    dif = np.diff(np.concatenate(([0], linha.astype(np.int8), [0])))
+    return list(zip(np.nonzero(dif == 1)[0], np.nonzero(dif == -1)[0]))
+
+
+def _subir_ate_cabeca(mascara: np.ndarray, cx: int, cy: int):
+    """Sobe do peito seguindo o trecho central da silhueta linha a linha:
+    onde ela afina é o pescoço, e o que continua para cima é a cabeça.
+    Segue o corpo mesmo inclinado. Devolve (y_topo, y_pescoço, máscara da
+    cabeça, x do centro da cabeça, largura da cabeça em px) ou None."""
+    trechos = _trechos(mascara[cy])
+    atual = next(((a, b) for a, b in trechos if a <= cx < b), None)
+    if atual is None:
+        return None
+    larg_peito = atual[1] - atual[0]
+    cabeca = np.zeros_like(mascara)
+    pescoco = None
+    larg_cab = 0
+    topo = cy
+    for r in range(cy - 1, -1, -1):
+        a0, b0 = atual
+        c0 = (a0 + b0) / 2
+        # entre os trechos que encostam no anterior, o mais perto do centro
+        # (acima dos ombros há braço, pescoço, braço: queremos o do meio)
+        vizinhos = [(a, b) for a, b in _trechos(mascara[r]) if min(b, b0) > max(a, a0)]
+        if not vizinhos:
+            break
+        melhor = min(vizinhos, key=lambda t: abs((t[0] + t[1]) / 2 - c0))
+        a, b = melhor
+        if pescoco is None:
+            if b - a < 0.6 * larg_peito:
+                pescoco = r
+                larg_cab = b - a
+        else:
+            # braço encostado na cabeça alarga o trecho: corta em volta do centro
+            c = (a0 + b0) / 2
+            limite = max(larg_cab, b0 - a0) * 0.9
+            a, b = max(a, int(c - limite)), min(b, int(c + limite) + 1)
+            larg_cab = max(larg_cab, b - a)
+        if pescoco is not None:
+            cabeca[r, a:b] = True
+        atual = (a, b)
+        topo = r
+    if pescoco is None or not cabeca.any():
+        return None
+    xs = np.nonzero(cabeca.any(axis=0))[0]
+    return topo, pescoco, cabeca, int((xs.min() + xs.max()) // 2), int(larg_cab)
 
 
 class Visao:
@@ -58,6 +112,8 @@ class Visao:
         self.angulo = 0
         self.rastro = None          # Pessoa do quadro anterior
         self.sequencia_humano = 0
+        self.falhas_humano = 0
+        self.origem = (0.0, 0.0, 0.0)
         self.deslocamento = 0.0     # quanto o candidato rastreado já andou (m)
         self.ultimo_centro = None
         self.confirmada = False
@@ -66,6 +122,8 @@ class Visao:
         self.movimento = 0.0        # fração de pixels que mudaram no quadro
         self.cortado = False        # há um corpo com a cabeça para fora da imagem
         self._anterior = None
+        self._reancorar = None
+        self.maior_candidato = None
         self._kernel = np.ones((3, 3), np.uint8)
         self._kernel_fechar = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 7))
 
@@ -93,6 +151,20 @@ class Visao:
         self.fundos[graus] = bg
         self.desconhecido[graus] = desc
         self.quadros_fundo[graus] = self.cfg["quadros_fundo_inicial"]
+        # o deslocamento não é perfeito (o Kinect gira pela base, não pela
+        # lente): no primeiro quadro novo, tudo fora da pessoa é reaprendido
+        regiao = np.zeros(bg.shape, bool)
+        m = self.rastro.mascara if self.rastro is not None else self.maior_candidato
+        if m is not None and abs(dv) < h:
+            if dv >= 0:
+                regiao[dv:] = m[:h - dv]
+            else:
+                regiao[:h + dv] = m[-dv:]
+            z = float(self.rastro.centro[2]) if self.rastro is not None else 2.0
+            r = max(3, int(0.35 * FX / z))
+            kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
+            regiao = cv2.dilate(regiao.astype(np.uint8), kern).astype(bool)
+        self._reancorar = regiao
 
     def fundo_pronto_em(self, graus: int) -> bool:
         return self.quadros_fundo.get(graus, 0) >= self.cfg["quadros_fundo_inicial"]
@@ -130,66 +202,114 @@ class Visao:
 
     # ---------------------------------------------------------------- análise
     def _medir(self, d, comp_mask):
-        """Mede um candidato. Devolve dict ou None se pequeno demais."""
+        """Mede um candidato. Devolve dict ou None se pequeno demais.
+
+        Braços levantados atrapalham o "topo" da silhueta, então primeiro
+        acha a coluna do tronco (a mais alta em pixels) e a cabeça perto
+        dela; o resto acima da linha dos ombros, para os lados, são mãos.
+        """
         cfg = self.cfg
         zs = d[comp_mask]
         if zs.size < cfg["min_pixels"]:
             return None
-        z_tronco = float(np.median(zs))
-        # a mão/braço esticado fica bem à frente do tronco; tira da silhueta
+        z0 = float(np.median(zs))
+        ys, xs = np.nonzero(comp_mask)
+        x0, x1 = xs.min(), xs.max()
+        px_x = FX / z0
+        px_y = FY / z0
+
+        # tronco = parte mais grossa da silhueta (máximo da transformada de
+        # distância); braços e pernas são finos, a cabeça é menor que o peito
+        dist = cv2.distanceTransform(comp_mask.astype(np.uint8), cv2.DIST_L2, 3)
+        cy_t, cx_t = np.unravel_index(int(np.argmax(dist)), dist.shape)
+        cx_t = int(cx_t)
+
+        cols = np.arange(comp_mask.shape[1])
+        # o pescoço às vezes some por uma ou duas linhas no ruído: sobe por uma
+        # versão fechada da silhueta
+        fechada = cv2.morphologyEx(comp_mask.astype(np.uint8), cv2.MORPH_CLOSE,
+                                   self._kernel_fechar).astype(bool)
+        cab = _subir_ate_cabeca(fechada, cx_t, int(cy_t))
+        if cab is None:
+            # sem cabeça reconhecível neste quadro: mede assim mesmo (não é
+            # "humano" agora, mas uma pessoa já confirmada continua rastreada)
+            topo_m = int(np.nonzero(comp_mask.any(axis=1))[0].min())
+            cab = (topo_m, int(topo_m + 0.25 * px_y), np.zeros_like(comp_mask), cx_t, 0)
+        y_cab, y_pescoco, cabeca_mask, cx_cab, larg_cab_px = cab
+        y_ombro = int(y_pescoco + 0.05 * px_y)
+
+        # profundidade do tronco medida no peito (não nas pernas sobre a cama)
+        peito = comp_mask[y_ombro:int(y_ombro + 0.3 * px_y)]
+        peito = peito & (np.abs(cols - cx_t) <= int(0.2 * px_x))[None, :]
+        zp = d[y_ombro:int(y_ombro + 0.3 * px_y)][peito]
+        z_tronco = float(np.median(zp)) if zp.size > 20 else z0
+        px_x = FX / z_tronco
+        px_y = FY / z_tronco
+
         frente = comp_mask & (d < z_tronco - cfg["mao_frente_m"])
         corpo = comp_mask & ~frente
-        ys, xs = np.nonzero(corpo)
-        if ys.size < cfg["min_pixels"]:
+        ys_c = np.nonzero(corpo)[0]
+        if ys_c.size < cfg["min_pixels"]:
             return None
-        y0, y1, x0, x1 = ys.min(), ys.max(), xs.min(), xs.max()
-        altura = (y1 - y0 + 1) * z_tronco / FY
-        largura = (x1 - x0 + 1) * z_tronco / FX
+        y1 = int(ys_c.max())
+        altura = (y1 - y_cab + 1) / px_y
 
-        # silhueta: largura da cabeça x largura dos ombros
-        px_m = FY / z_tronco
-        def largura_faixa(a_m, b_m):
-            r0 = int(y0 + a_m * px_m)
-            r1 = max(r0 + 1, int(y0 + b_m * px_m))
-            faixa = corpo[r0:r1]
-            if faixa.size == 0:
+        def largura_linhas(r0, r1, faixa_m=None):
+            bloco = corpo[max(0, r0):max(r0 + 1, r1)]
+            if faixa_m is not None:
+                bloco = bloco & (np.abs(cols - cx_t) <= int(faixa_m * px_x))[None, :]
+            if bloco.size == 0:
                 return 0.0
-            larguras = faixa.sum(axis=1)
+            larguras = bloco.sum(axis=1)
             larguras = larguras[larguras > 0]
-            return float(np.median(larguras)) / FX * z_tronco if larguras.size else 0.0
-        cabeca = largura_faixa(0.04, 0.16)
-        ombros = largura_faixa(0.30, 0.45)
+            return float(np.median(larguras)) / px_x if larguras.size else 0.0
+        cabeca = larg_cab_px / px_x
+        ombros = largura_linhas(int(y_ombro + 0.04 * px_y), int(y_ombro + 0.20 * px_y))
+        largura = ombros
         cabeca_ok = (cfg["cabeca_min_m"] <= cabeca <= cfg["cabeca_max_m"]
                      and ombros >= cabeca * cfg["razao_ombro_cabeca"])
-
         humano = (cfg["altura_min_m"] <= altura <= cfg["altura_max_m"]
                   and cfg["largura_min_m"] <= largura <= cfg["largura_max_m"]
                   and cabeca_ok)
 
-        cy = int(np.median(ys))
-        cx = int(np.median(xs))
-        topo_cols = np.nonzero(corpo[y0])[0]
-        topo_u = float(topo_cols.mean()) if topo_cols.size else float(cx)
-        z_topo = float(np.median(d[y0:y0 + max(2, int(0.15 * px_m)), x0:x1 + 1][
-            corpo[y0:y0 + max(2, int(0.15 * px_m)), x0:x1 + 1]]))
+        z_topo = float(np.median(d[cabeca_mask])) if cabeca_mask.any() else z_tronco
+        cy = int(y_ombro + 0.25 * px_y)
 
-        mao = mao_px = None
-        if frente.sum() * (z_tronco / FX) ** 2 >= cfg["mao_area_min_m2"]:
-            zf = d[frente]
-            zmin = float(zf.min())
-            ponta = frente & (d < zmin + cfg["mao_profundidade_m"])
+        # mãos levantadas: o que sobra acima da linha dos ombros, fora da cabeça
+        maos = {}
+        acima = np.zeros_like(comp_mask)
+        acima[:max(0, y_pescoco)] = True   # acima do pescoço: tira a faixa dos ombros
+        sem_cabeca = cv2.dilate(cabeca_mask.astype(np.uint8), self._kernel, iterations=2).astype(bool)
+        area_px = z_tronco ** 2 / (FX * FY)
+        lateral = int(cfg["mao_lateral_m"] * px_x)
+        for nome, lado in (("img_esq", cols < cx_cab - lateral), ("img_dir", cols > cx_cab + lateral)):
+            reg_lado = (comp_mask & acima & ~sem_cabeca & lado[None, :]).astype(np.uint8)
+            n, rot, st, _ = cv2.connectedComponentsWithStats(reg_lado, connectivity=8)
+            melhor = None
+            for i in range(1, n):
+                if st[i, cv2.CC_STAT_AREA] * area_px < cfg["mao_area_min_m2"]:
+                    continue
+                if melhor is None or st[i, cv2.CC_STAT_TOP] < st[melhor, cv2.CC_STAT_TOP]:
+                    melhor = i
+            if melhor is None:
+                continue
+            ponta = rot == melhor
+            ponta[int(st[melhor, cv2.CC_STAT_TOP] + cfg["mao_altura_m"] * px_y):] = False
             vy, vx = np.nonzero(ponta)
             u, v = float(vx.mean()), float(vy.mean())
-            zm = float(np.median(d[ponta]))
-            mao = para_3d(u, v, zm)
-            mao_px = (int(u), int(v))
+            maos[nome] = (para_3d(u, v, float(np.median(d[ponta]))), (int(u), int(v)))
+
+        mao = mao_px = None
+        if maos:
+            mao, mao_px = min(maos.values(), key=lambda m: m[1][1])
 
         return dict(
-            mascara=comp_mask, bbox=(int(x0), int(y0), int(x1 - x0 + 1), int(y1 - y0 + 1)),
-            centro=para_3d(cx, cy, z_tronco), topo=para_3d(topo_u, y0, z_topo),
-            topo_px=int(y0), base_px=int(y1), altura_m=altura, largura_m=largura,
-            cabeca_ok=cabeca_ok, humano=humano, mao=mao, mao_px=mao_px,
-            cabeca_m=cabeca, ombros_m=ombros)
+            mascara=comp_mask,
+            bbox=(int(x0), int(y_cab), int(x1 - x0 + 1), int(y1 - y_cab + 1)),
+            centro=para_3d(cx_t, cy, z_tronco), topo=para_3d(cx_cab, y_cab, z_topo),
+            topo_px=y_cab, base_px=y1, altura_m=altura, largura_m=largura,
+            cabeca_ok=cabeca_ok, humano=humano, mao=mao, mao_px=mao_px, maos=maos,
+            ombro_px=y_ombro, cabeca_m=cabeca, ombros_m=ombros)
 
     def processar(self, profundidade_mm: np.ndarray) -> Pessoa | None:
         cfg = self.cfg
@@ -209,6 +329,11 @@ class Visao:
             return None
 
         desc = self.desconhecido[self.angulo]
+        if self._reancorar is not None:
+            fora = ~self._reancorar
+            bg[fora & valido] = d[fora & valido]
+            desc[fora] = ~valido[fora]    # sem leitura agora: aprende depois
+            self._reancorar = None
         fg = valido & ~desc & (d < bg - cfg["limiar_fundo_m"])
         fg = cv2.morphologyEx(fg.astype(np.uint8), cv2.MORPH_OPEN, self._kernel)
         # o fechamento só serve para agrupar (ex.: cabeça separada do tronco
@@ -230,6 +355,8 @@ class Visao:
                         and cfg["largura_min_m"] <= m["largura_m"] <= cfg["largura_max_m"]):
                     self.cortado = True
 
+        self.maior_candidato = (max(candidatos, key=lambda c: c["mascara"].sum())["mascara"]
+                                if candidatos else None)
         escolhido = self._escolher(candidatos)
         if escolhido is not None:
             pessoa_mask = cv2.dilate(escolhido["mascara"].astype(np.uint8),
@@ -244,7 +371,7 @@ class Visao:
 
         p = Pessoa(**{k: escolhido[k] for k in (
             "mascara", "bbox", "centro", "topo", "topo_px", "base_px", "altura_m",
-            "largura_m", "cabeca_ok", "mao", "mao_px")})
+            "largura_m", "cabeca_ok", "mao", "mao_px", "maos", "ombro_px")})
         p.extras = {"cabeca_m": escolhido["cabeca_m"], "ombros_m": escolhido["ombros_m"]}
         p.confirmada = self.confirmada
         p.id = self.id_atual
@@ -274,6 +401,8 @@ class Visao:
         return self._seguir(c)
 
     def _novo_rastro(self, c):
+        self.origem = c["centro"]
+        self.falhas_humano = 0
         self.sequencia_humano = 0
         self.deslocamento = 0.0
         self.ultimo_centro = c["centro"]
@@ -284,21 +413,23 @@ class Visao:
     def _seguir(self, c):
         if self.rastro is None and self.ultimo_centro is None:
             self._novo_rastro(c)
-        if self.ultimo_centro is not None:
-            dx = c["centro"][0] - self.ultimo_centro[0]
-            dz = c["centro"][2] - self.ultimo_centro[2]
-            self.deslocamento += float(np.hypot(dx, dz))
+        # deslocamento líquido desde que o rastro começou (o centro tremendo
+        # quadro a quadro não deve contar como "se mexeu")
+        ox, _, oz = self.origem
+        self.deslocamento = max(self.deslocamento,
+                                float(np.hypot(c["centro"][0] - ox, c["centro"][2] - oz)))
         self.ultimo_centro = c["centro"]
         if c["humano"]:
             self.sequencia_humano += 1
-        elif not self.confirmada:
-            self.sequencia_humano = 0
+            self.falhas_humano = 0
+        else:
+            self.sequencia_humano = max(0, self.sequencia_humano - 1)
+            self.falhas_humano += 1
         if (not self.confirmada and self.sequencia_humano >= self.cfg["quadros_confirmar"]
-                and (self.deslocamento >= self.cfg["deslocamento_confirmar_m"]
-                     or c["mao"] is not None)):
+                and (self.deslocamento >= self.cfg["deslocamento_confirmar_m"] or c["maos"])):
             self.confirmada = True
-        if not self.confirmada and not c["humano"] and self.sequencia_humano == 0:
-            # candidato rastreado deixou de parecer gente antes de confirmar
+        if not self.confirmada and self.falhas_humano >= self.cfg["falhas_perder"]:
+            # candidato deixou de parecer gente antes de confirmar
             self._perder()
             return None
         return c
@@ -321,8 +452,9 @@ def imagem_debug(profundidade_mm: np.ndarray, pessoa: Pessoa | None, texto: str 
         img[pessoa.mascara] = (img[pessoa.mascara] * 0.5 + np.array(cor) * 0.5).astype(np.uint8)
         x, y, w, h = pessoa.bbox
         cv2.rectangle(img, (x, y), (x + w, y + h), cor, 1)
-        if pessoa.mao_px:
-            cv2.circle(img, pessoa.mao_px, 6, (0, 0, 255), 2)
+        for _, px in pessoa.maos.values():
+            cv2.circle(img, px, 6, (0, 0, 255), 2)
+        cv2.line(img, (x, pessoa.ombro_px), (x + w, pessoa.ombro_px), (255, 128, 0), 1)
     if texto:
         cv2.putText(img, texto, (4, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
     return img

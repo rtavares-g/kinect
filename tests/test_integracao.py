@@ -6,10 +6,11 @@ import config
 from controle import Controle
 from gestos import Gestos
 from tests.falsos import HAFalso
-from tests.simulador import Cena
+from tests.simulador import Cena, mao_levantada
 from visao import Visao
 
 FPS = 12
+DIR = "img_esq"   # mão direita do usuário aparece à esquerda da imagem
 
 
 class TestIntegracao(unittest.TestCase):
@@ -34,47 +35,51 @@ class TestIntegracao(unittest.TestCase):
         self.c.tick()
         return p
 
-    def test_entra_no_quarto_liga_ar_e_sobe_temperatura(self):
-        # entra andando
-        for i in range(15):
+    def mao(self, x, z, s, dy=0.0, dz=0.0, celular=None):
+        for _ in range(int(s * FPS)):
+            self.passo(dict(x=x, z=z, maos={DIR: mao_levantada(x, z, DIR, dy=dy, dz=dz)}, celular=celular))
+
+    def parado(self, x, z, s, celular=None):
+        for _ in range(int(s * FPS)):
+            self.passo(dict(x=x, z=z, celular=celular))
+
+    def test_liga_ar_sobe_temperatura_e_sai_por_tempo(self):
+        for i in range(15):                       # entra andando
             self.passo(dict(x=-0.8 + i * 0.05, z=2.4))
         self.assertEqual(self.c.estado, "observando")
-        x = -0.1
-        # mão parada acima da cabeça -> modo ar
-        for _ in range(int(1.6 * FPS)):
-            self.passo(dict(x=x, z=2.4, mao=(x + 0.1, 0.95, 2.0)))
+        x, z = -0.1, 2.4
+        self.mao(x, z, 1.8)                       # mão direita levantada e parada
         self.assertEqual(self.c.modo, "ar")
-        # abaixa o braço, estica à frente e empurra -> liga o ar
-        self.passo(dict(x=x, z=2.4))
-        for _ in range(int(0.6 * FPS)):
-            self.passo(dict(x=x, z=2.4, mao=(x + 0.1, 0.1, 2.05)))
-        for k in range(4):
-            self.passo(dict(x=x, z=2.4, mao=(x + 0.1, 0.1, 2.05 - 0.07 * (k + 1))))
+        self.parado(x, z, 0.3)                    # abaixa e levanta para o comando
+        self.mao(x, z, 0.8)
+        for k in range(4):                        # empurra -> liga o ar
+            self.passo(dict(x=x, z=z, maos={DIR: mao_levantada(x, z, DIR, dz=-0.06 * (k + 1))}))
         self.assertIn(("climate", "set_hvac_mode",
                        {"entity_id": "climate.ar_quarto", "hvac_mode": "cool"}), self.ha.chamadas)
-        # desliza para cima -> +1 °C
-        self.passo(dict(x=x, z=2.4))
-        for _ in range(int(1.0 * FPS)):
-            self.passo(dict(x=x, z=2.4))
-        for _ in range(4):
-            self.passo(dict(x=x, z=2.4, mao=(x + 0.1, -0.05, 1.9)))
-        for k in range(5):
-            self.passo(dict(x=x, z=2.4, mao=(x + 0.1, -0.05 + 0.08 * (k + 1), 1.9)))
+        self.mao(x, z, 1.0, dy=-0.2)              # mão um pouco mais baixa, parada
+        for k in range(4):                        # desliza para cima -> +1 °C
+            self.passo(dict(x=x, z=z, maos={DIR: mao_levantada(x, z, DIR, dy=-0.2 + 0.07 * (k + 1))}))
         self.assertIn(("climate", "set_temperature",
                        {"entity_id": "climate.ar_quarto", "temperature": 23}), self.ha.chamadas)
-        # sem comandos -> sai do modo por tempo
-        for _ in range(int(11 * FPS)):
-            self.passo(dict(x=x, z=2.4))
+        self.parado(x, z, 11)                     # sem comandos -> sai do modo
         self.assertIsNone(self.c.modo)
         self.assertEqual(self.c.estado, "observando")
 
-    def test_luz_por_empurrar_e_pessoa_sai(self):
+    def test_celular_na_mao_nao_dispara_nada(self):
+        for i in range(15):
+            self.passo(dict(x=0.6 - i * 0.05, z=2.0, celular="img_dir"))
+        for k in range(int(8 * FPS)):             # mexendo no celular por 8 s
+            self.passo(dict(x=0.0, z=2.0 + 0.01 * (k % 5), celular="img_dir"))
+        self.assertEqual(self.ha.chamadas, [])
+        self.assertEqual(self.c.estado, "observando")
+
+    def test_empurrar_fora_do_modo_alterna_luz_e_pessoa_sai(self):
         for i in range(15):
             self.passo(dict(x=0.6 - i * 0.05, z=2.0))
-        for _ in range(int(0.6 * FPS)):
-            self.passo(dict(x=0, z=2.0, mao=(0.15, 0.1, 1.65)))
+        self.parado(0, 2.0, 0.5)
+        self.mao(0, 2.0, 0.8)
         for k in range(4):
-            self.passo(dict(x=0, z=2.0, mao=(0.15, 0.1, 1.65 - 0.06 * (k + 1))))
+            self.passo(dict(x=0, z=2.0, maos={DIR: mao_levantada(0, 2.0, DIR, dz=-0.06 * (k + 1))}))
         self.assertEqual(self.ha.chamadas, [("light", "toggle", {"entity_id": "light.modulo_dimmer_light_1"})])
         for _ in range(5):
             self.passo(None)

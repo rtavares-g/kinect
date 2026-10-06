@@ -11,14 +11,14 @@ ARQUIVO_HA = os.path.join(PASTA, "ha.json")
 PADRAO = {
     "visao": {
         "alcance_min_m": 0.5,
-        "alcance_max_m": 4.5,
+        "alcance_max_m": 6.0,
         "limiar_fundo_m": 0.15,         # quanto mais perto que o fundo para ser "algo novo"
         "limiar_movimento_m": 0.08,
         "quadros_fundo_inicial": 15,
         "alfa_fundo": 0.02,
         "alfa_objeto": 0.004,           # ~10 s a 15 fps para absorver objeto parado
         "min_pixels": 250,
-        "altura_min_m": 0.6,            # sentado/meio corpo visível
+        "altura_min_m": 0.45,           # sentado na cama, pernas cobertas
         "altura_max_m": 2.3,
         "largura_min_m": 0.25,
         "largura_max_m": 1.4,
@@ -26,36 +26,40 @@ PADRAO = {
         "cabeca_max_m": 0.35,
         "razao_ombro_cabeca": 1.4,
         "quadros_confirmar": 8,
+        "falhas_perder": 6,             # quadros seguidos sem parecer gente até largar o candidato
         "deslocamento_confirmar_m": 0.15,
         "salto_max_m": 0.6,
-        "mao_frente_m": 0.22,           # mão pelo menos 22 cm à frente do tronco
+        "mao_frente_m": 0.25,           # mão esticada: 25 cm à frente do peito
+        "mao_lateral_m": 0.13,          # mão levantada: fora da faixa da cabeça
+        "mao_altura_m": 0.12,           # ponta do braço levantado considerada mão
         "mao_area_min_m2": 0.004,
         "mao_profundidade_m": 0.08,
     },
     "gestos": {
         "inverter_x": False,            # true se direita/esquerda saírem trocados
-        "zona_acima_m": 0.05,
-        "zona_lado_m": 0.30,
         "historico_s": 2.0,
         "intervalo_max_s": 0.4,
         "janela_tronco_s": 0.6,
         "tronco_parado_m": 0.15,
         "pausa_entre_gestos_s": 0.8,
         "deslizar_janela_s": 0.6,
-        "deslizar_dist_m": 0.25,
+        "deslizar_dist_m": 0.25,        # horizontal
+        "deslizar_dist_v_m": 0.18,      # vertical (a mão não pode descer abaixo do ombro)
+        "deslizar_preparo_s": 0.6,
         "empurrar_janela_s": 0.4,
         "empurrar_dist_m": 0.12,
         "empurrar_desvio_m": 0.10,
-        "empurrar_preparo_s": 0.4,
+        "empurrar_preparo_s": 0.6,
         "segurar_s": 1.2,
         "segurar_tolerancia_m": 0.06,
+        "segurar_fresco_s": 1.5,        # segurar só vale até 1,2+1,5 s depois de levantar
     },
     "controle": {
         "timeout_modo_s": 10,
-        "gesto_sair": "segurar_centro",
+        "gesto_sair": "",               # sair = repetir o gesto de entrada ou esperar
         "modos": {
             "ar": {
-                "entrada": "segurar_acima",
+                "entrada": "segurar_direita",
                 "tipo": "climate",
                 "entidade": "climate.ar_quarto",
                 "modo_ao_ligar": "cool",
@@ -63,13 +67,13 @@ PADRAO = {
                 "passo_temp": 1, "temp_min": 16, "temp_max": 30,
             },
             "ventilador": {
-                "entrada": "segurar_direita",
+                "entrada": "segurar_esquerda",
                 "tipo": "fan",
                 "entidade": "fan.quarto_gui",
                 "passo": 25,
             },
             "pendente": {
-                "entrada": "segurar_esquerda",
+                "entrada": "segurar_ambas",
                 "tipo": "light",
                 "entidade": "light.modulo_dimmer_light_2",
                 "passo": 20,

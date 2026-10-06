@@ -1,6 +1,6 @@
 """Gera quadros de profundidade sintéticos (640x480, mm) parecidos com os
 do Kinect: parede, chão e uma pessoa com cabeça, tronco, braços e pernas,
-opcionalmente com um braço esticado para a frente até a posição `mao`."""
+com mãos levantadas (`maos`) ou segurando um celular na frente do peito."""
 
 import numpy as np
 
@@ -37,7 +37,15 @@ class Cena:
         m = ((_u - uc) / ru) ** 2 + ((_v - vc) / rv) ** 2 <= 1
         np.minimum(zbuf, np.where(m, z, np.inf), out=zbuf)
 
-    def _pessoa(self, zbuf, x, z, altura, mao):
+    def _braco(self, zbuf, ombro, mao):
+        """Braço do ombro até a mão, em segmentos com profundidade interpolada."""
+        ox, oy, oz = ombro
+        hx, hy, hz = mao
+        for t in np.linspace(0, 1, 14):
+            self._elipse(zbuf, ox + (hx - ox) * t, oy + (hy - oy) * t, 0.045, 0.045, oz + (hz - oz) * t)
+        self._elipse(zbuf, hx, hy, 0.06, 0.08, hz)
+
+    def _pessoa(self, zbuf, x, z, altura, maos, celular):
         chao = -ALTURA_CAMERA
         topo = chao + altura
         ombro = topo - 0.26
@@ -47,20 +55,21 @@ class Cena:
         self._retangulo(zbuf, x - 0.21, x + 0.21, quadril, ombro, z + 0.02)  # tronco
         self._retangulo(zbuf, x - 0.17, x - 0.02, chao, quadril, z + 0.03)   # pernas
         self._retangulo(zbuf, x + 0.02, x + 0.17, chao, quadril, z + 0.03)
-        self._retangulo(zbuf, x - 0.29, x - 0.21, quadril + 0.05, ombro, z + 0.03)  # braço caído
-        if mao is None:
-            self._retangulo(zbuf, x + 0.21, x + 0.29, quadril + 0.05, ombro, z + 0.03)
-        else:
-            # braço esticado do ombro até a mão, em segmentos com profundidade crescente
-            ox, oy, oz = x + 0.22, ombro - 0.05, z
-            hx, hy, hz = mao
-            for t in np.linspace(0, 1, 12):
-                px, py, pz = ox + (hx - ox) * t, oy + (hy - oy) * t, oz + (hz - oz) * t
-                self._elipse(zbuf, px, py, 0.045, 0.045, pz)
-            self._elipse(zbuf, hx, hy, 0.06, 0.08, hz)                   # mão
+        lados = {"img_esq": -1, "img_dir": 1}
+        for nome, sinal in lados.items():
+            ox = x + sinal * 0.22
+            if nome in maos:
+                self._braco(zbuf, (ox, ombro - 0.03, z), maos[nome])
+            elif celular == nome:
+                # antebraço dobrado segurando o celular na frente do peito
+                self._braco(zbuf, (ox, ombro - 0.3, z), (x + sinal * 0.05, ombro - 0.2, z - 0.28))
+            else:
+                self._retangulo(zbuf, min(ox, ox + sinal * 0.08), max(ox, ox + sinal * 0.08),
+                                quadril + 0.05, ombro, z + 0.03)       # braço caído
 
     def quadro(self, pessoa=None, caixa=None):
-        """pessoa: dict(x, z, altura=1.75, mao=(x,y,z) ou None)
+        """pessoa: dict(x, z, altura=1.75, maos={"img_esq"|"img_dir": (x,y,z)},
+                       celular="img_esq"|"img_dir"|None)
         caixa: dict(x, z, largura, altura) — objeto sem forma humana."""
         zbuf = self._fundo()
         if caixa:
@@ -68,8 +77,16 @@ class Cena:
             self._retangulo(zbuf, c["x"] - c["largura"] / 2, c["x"] + c["largura"] / 2,
                             -ALTURA_CAMERA, -ALTURA_CAMERA + c["altura"], c["z"])
         if pessoa:
-            self._pessoa(zbuf, pessoa["x"], pessoa["z"], pessoa.get("altura", 1.75), pessoa.get("mao"))
+            self._pessoa(zbuf, pessoa["x"], pessoa["z"], pessoa.get("altura", 1.75),
+                         pessoa.get("maos", {}), pessoa.get("celular"))
         if self.ruido:
             zbuf = zbuf + self.rng.normal(0, 1, zbuf.shape).astype(np.float32) * 0.0015 * zbuf ** 2
         mm = np.where(np.isfinite(zbuf) & (zbuf < 8), zbuf * 1000, 0)
         return mm.astype(np.uint16)
+
+
+def mao_levantada(x_pessoa, z_pessoa, lado, altura=1.75, dx=0.0, dy=0.0, dz=0.0):
+    """Posição de uma mão levantada ao lado da cabeça (lado da imagem)."""
+    sinal = -1 if lado == "img_esq" else 1
+    topo = -ALTURA_CAMERA + altura
+    return (x_pessoa + sinal * 0.32 + dx, topo - 0.05 + dy, z_pessoa - 0.05 + dz)

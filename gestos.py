@@ -1,12 +1,18 @@
-"""Reconhecimento de gestos a partir da posição da mão ao longo do tempo.
+"""Reconhecimento de gestos a partir das mãos levantadas.
 
-Gestos (todos com o braço esticado para a frente, na direção do Kinect):
+Só contam mãos levantadas acima da linha dos ombros, ao lado da cabeça.
+Mão no colo, celular na frente do peito ou do rosto etc. são ignorados.
 
-- segurar_<zona>: mão parada por `segurar_s` segundos. A zona é a posição
-  da mão em relação ao corpo, do ponto de vista de quem faz o gesto:
-  acima (na altura da cabeça ou mais alto), direita, esquerda ou centro.
-- deslizar_<direção>: mão anda rápido para cima/baixo/direita/esquerda.
-- empurrar: mão parada avança rápido em direção ao Kinect.
+Gestos ("direita"/"esquerda" do ponto de vista de quem faz o gesto):
+
+- segurar_direita / segurar_esquerda / segurar_ambas:
+  levantar a mão (ou as duas) e deixar parada por `segurar_s`. Só vale logo
+  depois de levantar; quem fica com a mão parada no ar entre um comando e
+  outro não dispara de novo. Para repetir, abaixa e levanta outra vez.
+- deslizar_<cima|baixo|direita|esquerda>: com a mão já levantada, mover
+  rápido nessa direção.
+- empurrar: com a mão já levantada e parada, avançar a palma rápido em
+  direção ao Kinect.
 
 Enquanto a pessoa está andando (tronco se deslocando), nada é reconhecido.
 """
@@ -19,25 +25,23 @@ class Gestos:
         self.cfg = cfg
         self.mao = deque()      # (t, x, y, z) — x já no sentido do usuário
         self.tronco = deque()   # (t, x, z)
+        self.lado = None        # qual mão está sendo seguida
+        self.inicio = 0.0       # quando essa mão foi levantada
+        self.ambas_desde = None
         self.espera_ate = 0.0
-        self.travado_segurar = False
+        self.segurou = False
 
     def limpar(self):
         self.mao.clear()
-        self.travado_segurar = False
+        self.lado = None
+        self.segurou = False
+        self.ambas_desde = None
 
-    def zona(self, mao, pessoa) -> str:
-        cfg = self.cfg
-        sx = -1.0 if not cfg["inverter_x"] else 1.0
-        rel_x = (mao[0] - pessoa.centro[0]) * sx
-        rel_y = mao[1] - pessoa.topo[1]
-        if rel_y > -cfg["zona_acima_m"]:
-            return "acima"
-        if rel_x > cfg["zona_lado_m"]:
-            return "direita"
-        if rel_x < -cfg["zona_lado_m"]:
-            return "esquerda"
-        return "centro"
+    def _nome_lado(self, chave: str) -> str:
+        # Kinect de frente para a pessoa: a mão direita dela aparece à
+        # esquerda da imagem (a menos que a imagem venha espelhada)
+        direita = "img_esq" if not self.cfg["inverter_x"] else "img_dir"
+        return "direita" if chave == direita else "esquerda"
 
     def atualizar(self, t: float, pessoa) -> list[str]:
         cfg = self.cfg
@@ -52,14 +56,26 @@ class Gestos:
         _, x0, z0 = self.tronco[0]
         andando = abs(pessoa.centro[0] - x0) + abs(pessoa.centro[2] - z0) > cfg["tronco_parado_m"]
 
-        if pessoa.mao is None or andando:
+        maos = {k: v for k, v in (pessoa.maos or {}).items() if k in ("img_esq", "img_dir")}
+        if andando or not maos:
             self.limpar()
             return []
 
-        if self.mao and t - self.mao[-1][0] > cfg["intervalo_max_s"]:
-            self.limpar()       # buraco no rastreio: recomeça do zero
+        laterais = [k for k in ("img_esq", "img_dir") if k in maos]
+        if len(laterais) == 2:
+            self.ambas_desde = self.ambas_desde or t
+        else:
+            self.ambas_desde = None
+
+        if self.lado not in maos or (self.mao and t - self.mao[-1][0] > cfg["intervalo_max_s"]):
+            # mão nova (ou a anterior abaixou): começa um rastro do zero
+            self.mao.clear()
+            self.segurou = False
+            self.lado = laterais[0]
+            self.inicio = t
+
         sx = -1.0 if not cfg["inverter_x"] else 1.0
-        x, y, z = pessoa.mao
+        x, y, z = maos[self.lado][0]
         self.mao.append((t, x * sx, y, z))
         while self.mao and t - self.mao[0][0] > cfg["historico_s"]:
             self.mao.popleft()
@@ -71,56 +87,59 @@ class Gestos:
         if ev:
             self.espera_ate = t + cfg["pausa_entre_gestos_s"]
             self.mao.clear()
-            self.travado_segurar = False
+            self.segurou = True   # depois de um comando, segurar não vale até levantar de novo
             return [ev]
 
-        ev = self._segurar(t, pessoa)
-        return [ev] if ev else []
+        ev = self._segurar(t)
+        if ev:
+            self.espera_ate = t + cfg["pausa_entre_gestos_s"]
+            return [ev]
+        return []
 
     # ----------------------------------------------------------------------
     def _deslizar(self, t):
         cfg = self.cfg
         _, xa, ya, _ = self.mao[-1]
-        melhor = None
         for (ti, xi, yi, _) in self.mao:
             if t - ti > cfg["deslizar_janela_s"]:
                 continue
+            if ti - self.inicio < cfg["deslizar_preparo_s"]:
+                continue   # o próprio movimento de levantar a mão não conta
             dx, dy = xa - xi, ya - yi
             if abs(dx) >= cfg["deslizar_dist_m"] and abs(dx) > 2 * abs(dy):
-                melhor = "deslizar_direita" if dx > 0 else "deslizar_esquerda"
-                break
-            if abs(dy) >= cfg["deslizar_dist_m"] and abs(dy) > 2 * abs(dx):
-                melhor = "deslizar_cima" if dy > 0 else "deslizar_baixo"
-                break
-        return melhor
+                return "deslizar_direita" if dx > 0 else "deslizar_esquerda"
+            if abs(dy) >= cfg["deslizar_dist_v_m"] and abs(dy) > 2 * abs(dx):
+                return "deslizar_cima" if dy > 0 else "deslizar_baixo"
+        return None
 
     def _empurrar(self, t):
         cfg = self.cfg
-        if t - self.mao[0][0] < cfg["empurrar_preparo_s"] + cfg["empurrar_janela_s"] * 0.5:
-            return None
         _, xa, ya, za = self.mao[-1]
         for (ti, xi, yi, zi) in self.mao:
             if t - ti > cfg["empurrar_janela_s"]:
                 continue
+            if ti - self.inicio < cfg["empurrar_preparo_s"]:
+                continue
             if (zi - za >= cfg["empurrar_dist_m"]
                     and abs(xa - xi) + abs(ya - yi) < cfg["empurrar_desvio_m"]):
                 return "empurrar"
-            break
+            return None
         return None
 
-    def _segurar(self, t, pessoa):
+    def _segurar(self, t):
         cfg = self.cfg
-        if t - self.mao[0][0] < cfg["segurar_s"]:
+        if self.segurou or t - self.inicio < cfg["segurar_s"]:
             return None
+        if t - self.inicio > cfg["segurar_s"] + cfg["segurar_fresco_s"]:
+            return None   # mão está levantada há tempo demais (ficou parada no ar)
         recentes = [s for s in self.mao if t - s[0] <= cfg["segurar_s"]]
-        xs = [s[1] for s in recentes]
-        ys = [s[2] for s in recentes]
-        zs = [s[3] for s in recentes]
-        espalhamento = max(max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))
+        if len(recentes) < 3:
+            return None
+        espalhamento = max(max(s[i] for s in recentes) - min(s[i] for s in recentes)
+                           for i in (1, 2, 3))
         if espalhamento > cfg["segurar_tolerancia_m"]:
-            self.travado_segurar = False
             return None
-        if self.travado_segurar:
-            return None
-        self.travado_segurar = True
-        return "segurar_" + self.zona(pessoa.mao, pessoa)
+        self.segurou = True
+        if self.ambas_desde is not None and t - self.ambas_desde >= cfg["segurar_s"] * 0.7:
+            return "segurar_ambas"
+        return "segurar_" + self._nome_lado(self.lado)

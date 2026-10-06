@@ -1,7 +1,7 @@
 import unittest
 
 import config
-from tests.simulador import Cena
+from tests.simulador import Cena, mao_levantada
 from visao import Visao
 
 
@@ -36,10 +36,11 @@ class TestVisao(unittest.TestCase):
             p = self.v.processar(self.cena.quadro(pessoa=dict(x=0, z=2.3)))
         self.assertFalse(p is not None and p.confirmada)
 
-    def test_pessoa_parada_com_mao_confirma(self):
+    def test_pessoa_parada_com_mao_levantada_confirma(self):
         p = None
         for _ in range(15):
-            p = self.v.processar(self.cena.quadro(pessoa=dict(x=0, z=2.3, mao=(0.2, 0.1, 1.8))))
+            p = self.v.processar(self.cena.quadro(
+                pessoa=dict(x=0, z=2.3, maos={"img_esq": mao_levantada(0, 2.3, "img_esq")})))
         self.assertTrue(p.confirmada)
 
     def test_caixa_nao_e_humano(self):
@@ -47,14 +48,33 @@ class TestVisao(unittest.TestCase):
             p = self.v.processar(self.cena.quadro(caixa=dict(x=-0.5 + i * 0.03, z=2.0, largura=0.6, altura=1.2)))
             self.assertFalse(p is not None and p.confirmada)
 
-    def test_mao_localizada(self):
-        alvo = (0.25, 0.15, 1.7)
+    def test_maos_levantadas_localizadas(self):
+        for lados in (["img_esq"], ["img_dir"], ["img_esq", "img_dir"]):
+            v = Visao(self.cfg["visao"])
+            preparar(self.cena, v)
+            p = None
+            for i in range(14):
+                x = -0.2 + i * 0.03
+                p = v.processar(self.cena.quadro(
+                    pessoa=dict(x=x, z=2.2, maos={l: mao_levantada(x, 2.2, l) for l in lados})))
+            self.assertEqual(sorted(p.maos), sorted(lados))
+            for l in lados:
+                for a, b in zip(p.maos[l][0], mao_levantada(x, 2.2, l)):
+                    self.assertAlmostEqual(a, b, delta=0.07)
+
+    def test_celular_no_peito_nao_e_mao(self):
         p = None
-        for i in range(12):
-            p = self.v.processar(self.cena.quadro(pessoa=dict(x=-0.2 + i * 0.03, z=2.2, mao=alvo)))
-        self.assertIsNotNone(p.mao)
-        for a, b in zip(p.mao, alvo):
-            self.assertAlmostEqual(a, b, delta=0.06)
+        for i in range(15):
+            p = self.v.processar(self.cena.quadro(pessoa=dict(x=-0.3 + i * 0.04, z=2.0, celular="img_dir")))
+        self.assertTrue(p.confirmada)
+        self.assertEqual(p.maos, {})
+
+    def test_cabeca_nao_vira_mao(self):
+        p = None
+        for i in range(15):
+            p = self.v.processar(self.cena.quadro(pessoa=dict(x=-0.3 + i * 0.04, z=2.0)))
+        self.assertEqual(p.maos, {})
+        self.assertAlmostEqual(p.topo[0], p.centro[0], delta=0.08)
 
     def test_varias_distancias_e_alturas(self):
         for z in (1.8, 2.5, 3.2):

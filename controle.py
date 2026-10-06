@@ -147,7 +147,7 @@ class Controle:
             return
 
         if self.modo:
-            if nome == self.cfg["gesto_sair"]:
+            if self.cfg.get("gesto_sair") and nome == self.cfg["gesto_sair"]:
                 self._sair("gesto de saída")
                 return
             if nome in GESTOS_DE_COMANDO:

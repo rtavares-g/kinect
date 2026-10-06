@@ -7,33 +7,32 @@ Kinect v1 (Xbox 360, modelo 1414/1473) no Raspberry Pi. Ele:
 2. **valida se é humano** pela silhueta em profundidade: altura e largura em
    metros, cabeça mais estreita que os ombros, e o corpo precisa se mexer
    (cadeira, casaco e outros objetos parados nunca são confirmados);
-3. **segue a pessoa** inclinando o motor. O Kinect v1 só inclina para cima e
-   para baixo; na horizontal ele rastreia dentro do campo de visão (~57°);
+3. **segue a pessoa** inclinando o motor (só quando a cabeça sai do quadro e
+   nunca durante um gesto). O Kinect v1 só inclina para cima e para baixo;
+   na horizontal ele rastreia dentro do campo de visão (~57°);
 4. **reconhece gestos** e manda comandos para o **Home Assistant**.
 
 Só a câmera de profundidade é usada (sem RGB), então funciona no escuro.
 
 ## Gestos
 
-Todos os gestos são feitos com o **braço esticado para a frente**, na
-direção do Kinect. "Direita" e "esquerda" são do ponto de vista de quem faz
-o gesto.
+Só contam **mãos levantadas acima do ombro, ao lado da cabeça**. Mão no
+colo, celular na frente do peito ou do rosto etc. são ignorados. "Direita" e
+"esquerda" são do ponto de vista de quem faz o gesto.
 
 | Gesto | Fora de um modo | Dentro de um modo |
 |---|---|---|
-| Mão parada **acima da cabeça** (1,2 s) | entra no modo **ar** | troca para o modo ar (ou sai, se já estiver nele) |
-| Mão parada **à direita** do corpo (1,2 s) | entra no modo **ventilador** | troca / sai |
-| Mão parada **à esquerda** do corpo (1,2 s) | entra no modo **pendente** | troca / sai |
-| Mão parada **na frente do peito** (1,2 s) | — | **sai** do modo |
-| **Empurrar** (mão parada avança rápido) | liga/desliga a **luz do quarto** | liga/desliga o aparelho do modo |
-| Deslizar para **cima / baixo** | — | ar: temperatura ±1 °C · ventilador: velocidade ±25% · pendente: brilho ±20% |
+| Levantar a **mão direita** e deixar parada (~1,2 s) | entra no modo **ar** | troca para o ar (ou sai, se já estiver nele) |
+| Levantar a **mão esquerda** e deixar parada | entra no modo **ventilador** | troca / sai |
+| Levantar **as duas mãos** e deixar paradas | entra no modo **pendente** | troca / sai |
+| **Empurrar** (com a mão levantada e parada, avançar a palma para o Kinect) | liga/desliga a **luz do quarto** | liga/desliga o aparelho do modo |
+| Deslizar a mão levantada para **cima / baixo** | — | ar: temperatura ±1 °C · ventilador: velocidade ±25% · pendente: brilho ±20% |
 | Deslizar para **direita / esquerda** | — | ar: próximo/anterior modo (frio, seco, ventilar, auto) |
 
-Sem nenhum comando por **10 s**, o modo fecha sozinho.
-
-LED do Kinect: apagado = ninguém · verde = pessoa confirmada · verde
-piscando = dentro de um modo · vermelho rápido = gesto reconhecido/comando
-enviado.
+O "segurar" só vale logo depois de levantar a mão. Quem deixa a mão parada
+no ar entre um comando e outro não sai do modo sem querer. Para sair (ou
+trocar de modo), **abaixa e levanta a mão de novo**. Sem nenhum comando por
+**10 s**, o modo fecha sozinho.
 
 ## Entidades (Home Assistant)
 
@@ -76,7 +75,8 @@ python3 kinect_quarto.py --sem-ha -v          # roda tudo, só registrando os co
 
 Com o serviço rodando, `estado.json` mostra o que ele está vendo, e
 `/dev/shm/kinect/debug.jpg` traz a imagem de profundidade com a pessoa
-(verde = confirmada, laranja = candidata) e a mão (círculo vermelho).
+(verde = confirmada, laranja = candidata), a linha dos ombros (azul) e as
+mãos levantadas (círculos vermelhos).
 
 ```bash
 journalctl -u kinect-quarto -f

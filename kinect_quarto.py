@@ -152,7 +152,8 @@ def main():
 
         # seguir a pessoa na vertical (o Kinect v1 só inclina)
         if (cs["ativo"] and controle.modo is None and t0 - ultimo_tilt >= cs["intervalo_s"]
-                and (confirmada or visao.cortado)):
+                and (confirmada or visao.cortado)
+                and not (pessoa is not None and pessoa.maos)):   # não mexe durante gesto
             h = prof.shape[0] // 2
             frac = pessoa.topo_px / h if confirmada else 0.0
             novo = kinect.angulo

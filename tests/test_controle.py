@@ -27,7 +27,7 @@ class TestControle(unittest.TestCase):
         self.c = Controle(self.cfg, self.ha, led=self.leds.append, relogio=self.r)
 
     def test_ocioso_ignora_gestos(self):
-        self.c.gesto("segurar_acima")
+        self.c.gesto("segurar_direita")
         self.c.gesto("empurrar")
         self.assertEqual(self.ha.chamadas, [])
 
@@ -38,7 +38,7 @@ class TestControle(unittest.TestCase):
 
     def test_modo_ar(self):
         self.c.pessoa(True)
-        self.c.gesto("segurar_acima")
+        self.c.gesto("segurar_direita")
         self.assertEqual(self.c.modo, "ar")
         self.c.gesto("empurrar")
         self.c.gesto("deslizar_cima")
@@ -52,7 +52,7 @@ class TestControle(unittest.TestCase):
     def test_ar_desliga_e_limita_temperatura(self):
         self.ha.estados["climate.ar_quarto"] = {"state": "cool", "attributes": {"temperature": 30}}
         self.c.pessoa(True)
-        self.c.gesto("segurar_acima")
+        self.c.gesto("segurar_direita")
         self.c.gesto("deslizar_cima")
         self.c.gesto("deslizar_esquerda")
         self.c.gesto("empurrar")
@@ -64,7 +64,7 @@ class TestControle(unittest.TestCase):
 
     def test_modo_ventilador(self):
         self.c.pessoa(True)
-        self.c.gesto("segurar_direita")
+        self.c.gesto("segurar_esquerda")
         self.c.gesto("deslizar_cima")
         self.c.gesto("deslizar_baixo")
         self.c.gesto("empurrar")
@@ -77,14 +77,14 @@ class TestControle(unittest.TestCase):
     def test_ventilador_desligado_sobe_para_primeiro_passo(self):
         self.ha.estados["fan.quarto_gui"] = {"state": "off", "attributes": {"percentage": 80}}
         self.c.pessoa(True)
-        self.c.gesto("segurar_direita")
+        self.c.gesto("segurar_esquerda")
         self.c.gesto("deslizar_cima")
         self.assertEqual(self.ha.chamadas, [
             ("fan", "set_percentage", {"entity_id": "fan.quarto_gui", "percentage": 25})])
 
     def test_modo_pendente(self):
         self.c.pessoa(True)
-        self.c.gesto("segurar_esquerda")
+        self.c.gesto("segurar_ambas")
         self.c.gesto("deslizar_baixo")
         self.c.gesto("empurrar")
         self.assertEqual(self.ha.chamadas, [
@@ -94,25 +94,25 @@ class TestControle(unittest.TestCase):
 
     def test_no_modo_empurrar_nao_e_atalho(self):
         self.c.pessoa(True)
-        self.c.gesto("segurar_acima")
+        self.c.gesto("segurar_direita")
         self.c.gesto("empurrar")
         self.assertNotIn("light", [c[0] for c in self.ha.chamadas])
 
-    def test_sair_por_gesto_por_repeticao_e_troca(self):
+    def test_sair_por_repeticao_e_troca(self):
         self.c.pessoa(True)
-        self.c.gesto("segurar_acima")
-        self.c.gesto("segurar_centro")
-        self.assertIsNone(self.c.modo)
-        self.c.gesto("segurar_acima")
-        self.c.gesto("segurar_acima")
-        self.assertIsNone(self.c.modo)
-        self.c.gesto("segurar_acima")
         self.c.gesto("segurar_direita")
+        self.assertEqual(self.c.modo, "ar")
+        self.c.gesto("segurar_direita")
+        self.assertIsNone(self.c.modo)
+        self.c.gesto("segurar_direita")
+        self.c.gesto("segurar_esquerda")
         self.assertEqual(self.c.modo, "ventilador")
+        self.c.gesto("segurar_ambas")
+        self.assertEqual(self.c.modo, "pendente")
 
     def test_timeout(self):
         self.c.pessoa(True)
-        self.c.gesto("segurar_acima")
+        self.c.gesto("segurar_direita")
         self.r.t += 6
         self.c.gesto("deslizar_cima")      # comando renova o prazo
         self.r.t += 6
@@ -125,7 +125,7 @@ class TestControle(unittest.TestCase):
 
     def test_pessoa_some_sai_do_modo(self):
         self.c.pessoa(True)
-        self.c.gesto("segurar_acima")
+        self.c.gesto("segurar_direita")
         self.c.pessoa(False)
         self.assertEqual((self.c.estado, self.c.modo), ("ocioso", None))
 
@@ -133,7 +133,7 @@ class TestControle(unittest.TestCase):
         self.c.tick()
         self.c.pessoa(True)
         self.c.tick()
-        self.c.gesto("segurar_acima")
+        self.c.gesto("segurar_direita")
         self.c.tick()
         self.r.t += 1
         self.c.tick()
