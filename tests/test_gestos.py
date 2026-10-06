@@ -17,6 +17,7 @@ def pessoa(maos, centro=(0.0, 0.0, 2.2)):
 class TestGestos(unittest.TestCase):
     def setUp(self):
         self.cfg = config.carregar("/nao/existe")["gestos"]
+        self.cfg["inverter_x"] = False   # o simulador gera imagem sem espelho
         self.g = Gestos(self.cfg)
         self.t = 0.0
 
@@ -49,7 +50,7 @@ class TestGestos(unittest.TestCase):
         self.assertEqual(self.rodar(q), ["segurar_ambas"])
 
     def test_inverter_x(self):
-        self.cfg["inverter_x"] = True
+        self.g.cfg["inverter_x"] = True
         self.assertEqual(self.rodar(self.parada(DIR, (-0.3, 0.7, 2.1), 1.6)), ["segurar_esquerda"])
 
     def test_segurar_dispara_uma_vez_e_nao_vale_com_mao_esquecida_no_ar(self):
@@ -88,7 +89,7 @@ class TestGestos(unittest.TestCase):
 
     def test_empurrar(self):
         a = (-0.3, 0.7, 2.1)
-        evs = self.rodar(self.parada(DIR, a, 0.8) + self.linha(DIR, a, (-0.3, 0.7, 1.9), 0.25))
+        evs = self.rodar(self.parada(DIR, a, 0.8) + self.linha(DIR, a, (-0.3, 0.7, 1.85), 0.25))
         self.assertEqual(evs, ["empurrar"])
 
     def test_andando_nao_gera_gesto(self):

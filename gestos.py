@@ -120,7 +120,11 @@ class Gestos:
                 continue
             if ti - self.inicio < cfg["empurrar_preparo_s"]:
                 continue
+            # a palma tem que ter avançado e continuar à frente nos dois últimos
+            # quadros (um pulo isolado da profundidade não conta)
+            z_penultimo = self.mao[-2][3] if len(self.mao) >= 2 else za
             if (zi - za >= cfg["empurrar_dist_m"]
+                    and zi - z_penultimo >= cfg["empurrar_dist_m"] * 0.6
                     and abs(xa - xi) + abs(ya - yi) < cfg["empurrar_desvio_m"]):
                 return "empurrar"
             return None
@@ -136,8 +140,9 @@ class Gestos:
         if len(recentes) < 3:
             return None
         espalhamento = max(max(s[i] for s in recentes) - min(s[i] for s in recentes)
-                           for i in (1, 2, 3))
-        if espalhamento > cfg["segurar_tolerancia_m"]:
+                           for i in (1, 2))
+        prof = max(s[3] for s in recentes) - min(s[3] for s in recentes)
+        if espalhamento > cfg["segurar_tolerancia_m"] or prof > cfg["segurar_tolerancia_z_m"]:
             return None
         self.segurou = True
         if self.ambas_desde is not None and t - self.ambas_desde >= cfg["segurar_s"] * 0.7:

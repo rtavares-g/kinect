@@ -81,7 +81,10 @@ def _subir_ate_cabeca(mascara: np.ndarray, cx: int, cy: int):
         vizinhos = [(a, b) for a, b in _trechos(mascara[r]) if min(b, b0) > max(a, a0)]
         if not vizinhos:
             break
-        melhor = min(vizinhos, key=lambda t: abs((t[0] + t[1]) / 2 - c0))
+        # até o pescoço, a referência é a coluna do peito (o braço levantado
+        # colado na cabeça não puxa a subida para o lado); depois, a cabeça
+        ref = cx if pescoco is None else c0
+        melhor = min(vizinhos, key=lambda t: abs((t[0] + t[1]) / 2 - ref))
         a, b = melhor
         if pescoco is None:
             if b - a < 0.6 * larg_peito:
@@ -201,7 +204,7 @@ class Visao:
             desc[:] = False
 
     # ---------------------------------------------------------------- análise
-    def _medir(self, d, comp_mask):
+    def _medir(self, d, comp_mask, ox=0, oy=0):
         """Mede um candidato. Devolve dict ou None se pequeno demais.
 
         Braços levantados atrapalham o "topo" da silhueta, então primeiro
@@ -297,19 +300,24 @@ class Visao:
             ponta[int(st[melhor, cv2.CC_STAT_TOP] + cfg["mao_altura_m"] * px_y):] = False
             vy, vx = np.nonzero(ponta)
             u, v = float(vx.mean()), float(vy.mean())
-            maos[nome] = (para_3d(u, v, float(np.median(d[ponta]))), (int(u), int(v)))
+            # mão pequena e longe: a borda mistura fundo/cabeça; usa só pontos
+            # perto do corpo e pega os mais próximos (a palma)
+            zs = d[ponta]
+            zs = zs[np.abs(zs - z_tronco) < 0.7]
+            zm = float(np.percentile(zs, 30)) if zs.size else z_tronco
+            maos[nome] = (para_3d(u + ox, v + oy, zm), (int(u) + ox, int(v) + oy))
 
         mao = mao_px = None
         if maos:
             mao, mao_px = min(maos.values(), key=lambda m: m[1][1])
 
         return dict(
-            mascara=comp_mask,
-            bbox=(int(x0), int(y_cab), int(x1 - x0 + 1), int(y1 - y_cab + 1)),
-            centro=para_3d(cx_t, cy, z_tronco), topo=para_3d(cx_cab, y_cab, z_topo),
-            topo_px=y_cab, base_px=y1, altura_m=altura, largura_m=largura,
+            mascara=comp_mask, offset=(ox, oy),
+            bbox=(int(x0) + ox, int(y_cab) + oy, int(x1 - x0 + 1), int(y1 - y_cab + 1)),
+            centro=para_3d(cx_t + ox, cy + oy, z_tronco), topo=para_3d(cx_cab + ox, y_cab + oy, z_topo),
+            topo_px=y_cab + oy, base_px=y1 + oy, altura_m=altura, largura_m=largura,
             cabeca_ok=cabeca_ok, humano=humano, mao=mao, mao_px=mao_px, maos=maos,
-            ombro_px=y_ombro, cabeca_m=cabeca, ombros_m=ombros)
+            ombro_px=y_ombro + oy, cabeca_m=cabeca, ombros_m=ombros)
 
     def processar(self, profundidade_mm: np.ndarray) -> Pessoa | None:
         cfg = self.cfg
@@ -347,7 +355,11 @@ class Visao:
         for i in range(1, n):
             if stats[i, cv2.CC_STAT_AREA] < cfg["min_pixels"]:
                 continue
-            m = self._medir(d, (rot == i) & fg_bool)
+            x, y, w, h = (int(v) for v in stats[i, :4])
+            m0 = 4
+            ya, yb = max(0, y - m0), min(d.shape[0], y + h + m0)
+            xa, xb = max(0, x - m0), min(d.shape[1], x + w + m0)
+            m = self._medir(d[ya:yb, xa:xb], (rot[ya:yb, xa:xb] == i) & fg_bool[ya:yb, xa:xb], xa, ya)
             if m is not None:
                 candidatos.append(m)
                 # corpo grande encostado no topo da imagem: cabeça fora do quadro
@@ -355,6 +367,12 @@ class Visao:
                         and cfg["largura_min_m"] <= m["largura_m"] <= cfg["largura_max_m"]):
                     self.cortado = True
 
+        for c in candidatos:   # máscara de volta ao tamanho da imagem
+            ox, oy = c["offset"]
+            cheia = np.zeros(d.shape, bool)
+            mh, mw = c["mascara"].shape
+            cheia[oy:oy + mh, ox:ox + mw] = c["mascara"]
+            c["mascara"] = cheia
         self.maior_candidato = (max(candidatos, key=lambda c: c["mascara"].sum())["mascara"]
                                 if candidatos else None)
         escolhido = self._escolher(candidatos)

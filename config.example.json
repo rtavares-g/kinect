@@ -13,6 +13,6 @@
       "empurrar": {"acao": "alternar", "entidade": "light.modulo_dimmer_light_1"}
     }
   },
-  "gestos": {"inverter_x": false},
+  "gestos": {"inverter_x": true},
   "seguir": {"ativo": true}
 }

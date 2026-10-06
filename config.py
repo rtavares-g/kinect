@@ -36,7 +36,7 @@ PADRAO = {
         "mao_profundidade_m": 0.08,
     },
     "gestos": {
-        "inverter_x": False,            # true se direita/esquerda saírem trocados
+        "inverter_x": True,             # a imagem do Kinect vem espelhada (conferido no teste 2)
         "historico_s": 2.0,
         "intervalo_max_s": 0.4,
         "janela_tronco_s": 0.6,
@@ -47,11 +47,12 @@ PADRAO = {
         "deslizar_dist_v_m": 0.18,      # vertical (a mão não pode descer abaixo do ombro)
         "deslizar_preparo_s": 0.6,
         "empurrar_janela_s": 0.4,
-        "empurrar_dist_m": 0.12,
+        "empurrar_dist_m": 0.15,
         "empurrar_desvio_m": 0.10,
         "empurrar_preparo_s": 0.6,
         "segurar_s": 1.2,
         "segurar_tolerancia_m": 0.06,
+        "segurar_tolerancia_z_m": 0.20,  # profundidade da mão oscila mais que x/y
         "segurar_fresco_s": 1.5,        # segurar só vale até 1,2+1,5 s depois de levantar
     },
     "controle": {

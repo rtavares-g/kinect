@@ -16,6 +16,7 @@ DIR = "img_esq"   # mão direita do usuário aparece à esquerda da imagem
 class TestIntegracao(unittest.TestCase):
     def setUp(self):
         cfg = config.carregar("/nao/existe")
+        cfg["gestos"]["inverter_x"] = False   # o simulador gera imagem sem espelho
         self.cena = Cena(semente=3)
         self.v = Visao(cfg["visao"])
         self.g = Gestos(cfg["gestos"])
@@ -53,7 +54,7 @@ class TestIntegracao(unittest.TestCase):
         self.parado(x, z, 0.3)                    # abaixa e levanta para o comando
         self.mao(x, z, 0.8)
         for k in range(4):                        # empurra -> liga o ar
-            self.passo(dict(x=x, z=z, maos={DIR: mao_levantada(x, z, DIR, dz=-0.06 * (k + 1))}))
+            self.passo(dict(x=x, z=z, maos={DIR: mao_levantada(x, z, DIR, dz=-0.07 * (k + 1))}))
         self.assertIn(("climate", "set_hvac_mode",
                        {"entity_id": "climate.ar_quarto", "hvac_mode": "cool"}), self.ha.chamadas)
         self.mao(x, z, 1.0, dy=-0.2)              # mão um pouco mais baixa, parada
@@ -79,7 +80,7 @@ class TestIntegracao(unittest.TestCase):
         self.parado(0, 2.0, 0.5)
         self.mao(0, 2.0, 0.8)
         for k in range(4):
-            self.passo(dict(x=0, z=2.0, maos={DIR: mao_levantada(0, 2.0, DIR, dz=-0.06 * (k + 1))}))
+            self.passo(dict(x=0, z=2.0, maos={DIR: mao_levantada(0, 2.0, DIR, dz=-0.07 * (k + 1))}))
         self.assertEqual(self.ha.chamadas, [("light", "toggle", {"entity_id": "light.modulo_dimmer_light_1"})])
         for _ in range(5):
             self.passo(None)
