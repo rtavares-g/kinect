@@ -108,7 +108,7 @@ PADRAO = {
         "pasta": "~/.cache/kinect",
     },
     "presenca": {
-        "estado_mmwave": "~/presenca-quarto/estado.json",
+        "estado_mmwave": "~/projetos/presenca-quarto/estado.json",
         "movimento_kinect": 0.02,        # fração de pixels mudando = presença
         "ocioso_apos_s": 60,             # sem presença por isso -> modo econômico
         "fps_ativo": 12,

@@ -3,7 +3,7 @@
 Kinect v1 (Xbox 360, modelo 1414/1473) no Raspberry Pi. Ele:
 
 1. **detecta presença**, pelo mmWave do [`presenca-quarto`](../presenca-quarto)
-   (`estado.json`) ou por movimento visto pelo próprio Kinect;
+   (`~/projetos/presenca-quarto/estado.json`) ou por movimento visto pelo próprio Kinect;
 2. **valida se é humano** pela silhueta em profundidade: altura e largura em
    metros, cabeça mais estreita que os ombros, e o corpo precisa se mexer
    (cadeira, casaco e outros objetos parados nunca são confirmados);
@@ -56,8 +56,8 @@ fora do git).
 ## Instalação
 
 ```bash
-git clone https://github.com/rtavares-g/kinect.git ~/kinect
-cd ~/kinect && ./install.sh
+git clone https://github.com/rtavares-g/kinect.git ~/projetos/kinect
+cd ~/projetos/kinect && ./install.sh
 ```
 
 O Kinect precisa da **fonte de 12 V** dele. Só pela USB aparecem o motor e o

@@ -5,7 +5,7 @@
 set -e
 
 REPO_URL="https://github.com/rtavares-g/kinect.git"
-INSTALL_DIR="$HOME/kinect"
+INSTALL_DIR="$HOME/projetos/kinect"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ "$SCRIPT_DIR" != "$INSTALL_DIR" ]; then

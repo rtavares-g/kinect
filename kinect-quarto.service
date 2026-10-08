@@ -9,9 +9,9 @@ User=__USER__
 Group=__USER__
 SupplementaryGroups=plugdev video
 
-WorkingDirectory=__HOME__/kinect
+WorkingDirectory=__HOME__/projetos/kinect
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 __HOME__/kinect/kinect_quarto.py
+ExecStart=/usr/bin/python3 __HOME__/projetos/kinect/kinect_quarto.py
 
 Restart=always
 RestartSec=10
