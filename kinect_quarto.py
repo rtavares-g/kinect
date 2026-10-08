@@ -125,8 +125,9 @@ def main():
     ultimo_salvo = 0.0
     quadros, t_fps, fps = 0, time.monotonic(), 0.0
 
-    kinect.inclinar(0)
-    visao.mudar_angulo(0)
+    inicial = max(cs["angulo_min"], min(cs["angulo_max"], cs["angulo_inicial"]))
+    kinect.inclinar(inicial)
+    visao.mudar_angulo(inicial)
     avisar_systemd("READY=1")
     log.info("rodando")
 

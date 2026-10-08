@@ -94,6 +94,7 @@ PADRAO = {
     },
     "seguir": {
         "ativo": True,
+        "angulo_inicial": 0,            # ao iniciar (Kinect no alto: negativo, olhando para baixo)
         "angulo_min": -15,
         "angulo_max": 20,
         "passo_graus": 4,

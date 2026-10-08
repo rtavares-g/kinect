@@ -85,6 +85,10 @@ journalctl -u kinect-quarto -f
 
 - Direita/esquerda trocados: `"gestos": {"inverter_x": true}`.
 - Não quer que o motor se mexa: `"seguir": {"ativo": false}`.
+- Kinect no alto (ex.: em cima do armário): incline para baixo ao iniciar e
+  libere os ângulos negativos, por exemplo
+  `"seguir": {"angulo_inicial": -24, "angulo_min": -27, "angulo_max": 0}`.
+  O ângulo é absoluto (o motor usa o acelerômetro): 0° é horizontal.
 - Mudar o tempo para o modo fechar: `"controle": {"timeout_modo_s": 15}`.
 - Os outros limites estão em `config.py` (`PADRAO`). Qualquer chave pode ser
   sobrescrita no `config.json`.
