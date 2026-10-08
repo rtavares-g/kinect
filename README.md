@@ -25,7 +25,7 @@ colo, celular na frente do peito ou do rosto etc. são ignorados. "Direita" e
 | Levantar a **mão direita** e deixar parada (~1,2 s) | entra no modo **ar** | troca para o ar (ou sai, se já estiver nele) |
 | Levantar a **mão esquerda** e deixar parada | entra no modo **ventilador** | troca / sai |
 | Levantar **as duas mãos** e deixar paradas | entra no modo **pendente** | troca / sai |
-| **Empurrar** (com a mão levantada e parada, avançar a palma para o Kinect) | liga/desliga a **luz do quarto** | liga/desliga o aparelho do modo |
+| **Empurrar** (com a mão levantada e parada, avançar a palma para o Kinect) | liga/desliga o **pendente** | liga/desliga o aparelho do modo |
 | Deslizar a mão levantada para **cima / baixo** | — | ar: temperatura ±1 °C · ventilador: velocidade ±25% · pendente: brilho ±20% |
 | Deslizar para **direita / esquerda** | — | ar: próximo/anterior modo (frio, seco, ventilar, auto) |
 
@@ -43,8 +43,7 @@ pelo `install.sh`):
 |---|---|
 | Ar | `climate.ar_quarto` |
 | Ventilador | `fan.quarto_gui` |
-| Pendente | `light.modulo_dimmer_light_2` |
-| Luz do quarto | `light.modulo_dimmer_light_1` |
+| Pendente (modo e empurrar) | `light.modulo_dimmer_light_1` |
 
 O serviço publica `sensor.kinect_quarto` no HA, com o estado (`ocioso`,
 `observando`, `ar`, `ventilador`, `pendente`) e o último gesto. Dá para usar
